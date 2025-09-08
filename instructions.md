@@ -215,7 +215,7 @@ Next, clone the chroma repository …
 
 ```shell
 $ cd ~/llm
-$ git clone https://github.com/chroma-core/chroma.git
+$ git clone --depth 1 --branch 1.0.20 https://github.com/chroma-core/chroma.git
 $ cd chroma
 ```
 
@@ -224,6 +224,9 @@ $ cd chroma
 ```shell
 $ cargo update generator@0.8.1
 ```
+
+> [!NOTE]
+> The chromadb maintainer use unstable Rust versions in their development / latest branch, hence, we download the most recent release branch.
 
 Execute the build command …
 
