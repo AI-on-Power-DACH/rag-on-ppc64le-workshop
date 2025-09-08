@@ -4,8 +4,6 @@ import chromadb
 import gradio as gr
 import openai
 
-from ibm_theme import IBMTheme
-
 
 chroma_client = chromadb.HttpClient(host="localhost", port=8000)
 llm_client = openai.OpenAI(
@@ -59,7 +57,7 @@ def generate_response(query, collection_name, top_k, max_tokens, timeout):
 
 
 def main():
-    with gr.Blocks(theme=IBMTheme()) as demo:
+    with gr.Blocks() as demo:
         gr.Markdown("# Chat with IBM RedBooks")
 
         topic_choices = [collection.name for collection in chroma_client.list_collections()]
