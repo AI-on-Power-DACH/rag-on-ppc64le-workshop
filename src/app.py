@@ -27,14 +27,15 @@ def generate_response(query, collection_name, top_k, max_tokens, timeout):
     context = "\n".join(documents)
 
     prompt = textwrap.dedent(f"""
-        ### CONTEXT:
-        {context}
-        
+        You are a helpful assistant.
+        Answer the user's QUERY using the provided CONTEXT.
+        If the CONTEXT doesn’t contain enough information, reply with: "I do not know."
+
         ### QUERY:
         {query}
-        
-        Answer the user's QUERY using the CONTEXT above.
-        If the CONTEXT doesn’t contain enough information, reply with: "I do not know."
+
+        ### CONTEXT:
+        {context}
         
         ### Answer:
         """)
