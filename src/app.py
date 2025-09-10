@@ -41,6 +41,7 @@ def generate_response(query, collection_name, top_k, max_tokens, timeout):
         """)
 
     full_response = ""
+    yield "", [(query, full_response)], context
     response = llm_client.completions.create(
         prompt=prompt,
         model="",
