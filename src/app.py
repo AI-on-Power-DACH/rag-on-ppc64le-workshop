@@ -1,9 +1,9 @@
+import re
 import textwrap
 
 import chromadb
 import gradio as gr
 import openai
-
 
 chroma_client = chromadb.HttpClient(host="localhost", port=8000)
 llm_client = openai.OpenAI(
@@ -22,9 +22,9 @@ def retrieve_documents(query, collection_name, top_k=1):
     return [doc for sublist in documents for doc in sublist]
 
 
-def generate_response(query, collection_name, top_k, max_tokens, timeout):
+def generate_response(query, chat_history: list, collection_name, top_k, max_tokens, timeout):
     documents = retrieve_documents(query, collection_name, int(top_k))
-    context = "\n".join(documents)
+    context = re.sub("#+\s", "", "\n".join(documents))
 
     prompt = textwrap.dedent(f"""
         You are a helpful assistant.
@@ -41,7 +41,7 @@ def generate_response(query, collection_name, top_k, max_tokens, timeout):
         """)
 
     full_response = ""
-    yield "", [(query, full_response)], context
+    yield "", chat_history + [(query, full_response)], context
     response = llm_client.completions.create(
         prompt=prompt,
         model="",
@@ -53,9 +53,9 @@ def generate_response(query, collection_name, top_k, max_tokens, timeout):
     for chunk in response:
         token_text = chunk.content
         full_response += token_text
-        yield "", [(query, full_response)], context
+        yield "", chat_history + [(query, full_response)], context
 
-    return "", [(query, full_response)], ""
+    return "", chat_history + [(query, full_response)], ""
 
 
 def main():
@@ -77,7 +77,7 @@ def main():
 
         submit_button.click(
             fn=generate_response,
-            inputs=[query_input, topic_dropdown, top_k_input, max_tokens_input, timeout_input],
+            inputs=[query_input, chatbot, topic_dropdown, top_k_input, max_tokens_input, timeout_input],
             outputs=[query_input, chatbot, context_box]
         )
 
