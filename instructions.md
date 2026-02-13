@@ -28,6 +28,9 @@ $ pwd
 $ mkdir llm && cd $_
 ```
 
+> [!IMPORTANT]
+> If you are running RHEL 10.0 (RHEL < 10 is probably also affected), you have to manually upgrade `rpm-sequoia` and `openssl-libs` before installing the `Development tools` package. At the time of this writing, `rpm-sequoia` contains a bug, which would lead to the inability to install any package after installing the wrong version of it. Upgrade via `sudo dnf upgrade rpm-sequoia openssl-libs`. >)
+
 The `Development tools` package is installed ...
 
 ```shell
@@ -52,7 +55,7 @@ $ sudo dnf -y install \
 > [!NOTE]
 > If you are running on RHEL 9 or earlier, you may have to install `gcc-toolset-13` or newer to get a gcc version that is sufficient for subsequent tasks. As we are running on RHEL 10, the system version is fine.
 
-_micromamba_ is used for dependency isolation and lets us install packages from the _rocketce_-channel, which includes optimised packages for the IBM Power architecture.
+_micromamba_ is used for dependency isolation and is subsequently installed.
 
 ```shell
 $ curl -o /tmp/micromamba.tar.bz2 -L https://micro.mamba.pm/api/micromamba/linux-ppc64le/latest
@@ -69,29 +72,30 @@ $ echo 'micromamba activate' >> ~/.bashrc
 $ source ~/.bashrc
 ```
 
-For all LLM-related dependencies, an environment with the name `llm` is created and Python 3.11 is installed from the `rocketce` channel (IBM Power-optimised):
+For all LLM-related dependencies, an environment with the name `llm` is created and Python 3.12 is installed:
 
 ```shell
 $ micromamba create -y \
     -n llm \
-    --channel=rocketce \
 	--channel=defaults \
-	python=3.11
+	python=3.12
 $ micromamba activate -n llm
 ```
 
-The model runtime requires some Python packages. The crucial ones are optimised for ppc64le and available via _rocketce_:
+The model runtime requires some Python packages. The crucial ones are optimised for ppc64le and available via IBM's _Devpi_.
+To install packages from the Devpi, simply add the Devpi's index url as extra index url to all `pip install` commands and add the `--prefer-binary` flag to prefer binaries over source installations.
+If Python's package manager pip can't find the corresponding package in the Devpi, it will fall back to the default PyPI.
+
+Here's the command to install all dependencies:
 
 ```shell
-$ micromamba install -y \
-    -n llm \
-    --channel=rocketce \
-    --channel=defaults \
-    python=3.11 \
+$ python -m pip install \
+    --prefer-binary \
+    --extra-index-url=https://wheels.developerfirst.ibm.com/ppc64le/linux \
     numpy \
-    pytorch-cpu \
+    torch \
     sentencepiece \
-    "conda-forge::gguf"
+    gguf
 ```
 
 For simplicity, llama.cpp is used as a model runtime. While llama.cpp is suitable for production, too, vLLM is a scalable alternative that should be considered. To get all hardware optimisation, llama.cpp needs to be compiled from source. First, clone the llama.cpp repository:
@@ -123,15 +127,15 @@ $ cd ../..
 $ pwd
 /home/cecuser/llm
 $ mkdir models
-$ python3.11 -m pip install -U "huggingface_hub[cli,hf_xet]"
+$ python -m pip install -U "huggingface_hub[cli,hf_xet]"
 ```
 
-llama.cpp only support models in GGUF format. Some projects publish models in GGUF format, others require converting them using different tools. The user _bartowski_ provides a big number of converted models in different data formats. In the example at hand, the **IBM Granite 3.3 8B Instruct** model is used:
+llama.cpp only support models in GGUF format. Some projects publish models in GGUF format, others require converting them using different tools. The user _bartowski_ provides a big number of converted models in different data formats. In the example at hand, the **IBM Granite 4.0-H-Tiny** model is used:
 
 ```shell
-$ huggingface-cli download \
-    bartowski/ibm-granite_granite-3.3-8b-instruct-GGUF ibm-granite_granite-3.3-8b-instruct-Q8_0.gguf \
-    --local-dir models/bartowski/ibm-granite_granite-3.3-8b-instruct-GGUF
+$ hf download \
+    bartowski/ibm-granite_granite-4.0-h-tiny-GGUF ibm-granite_granite-4.0-h-tiny-Q8_0.gguf \
+    --local-dir models/bartowski/ibm-granite_granite-4.0-h-tiny-GGUF
 ```
 
 Managing AI applications becomes easier, when knowing exactly how to manage them. Therefore, a new systems service responsible for llama.cpp is set up. Create a service-file `/etc/systemd/system/llama.cpp.service` with the following content:
@@ -142,7 +146,7 @@ Description=Llama.cpp Service
 
 [Service]
 Type=simple
-ExecStart=/home/cecuser/llm/llama.cpp/build/bin/llama-server -m /home/cecuser/llm/models/bartowski/ibm-granite_granite-3.3-8b-instruct-GGUF/ibm-granite_granite-3.3-8b-instruct-Q8_0.gguf -v -c 12288 -t 32 -tb 32 --api-key examplekey001 --host 0.0.0.0 --port 8080
+ExecStart=/home/cecuser/llm/llama.cpp/build/bin/llama-server -m /home/cecuser/llm/models/bartowski/ibm-granite_granite-4.0-h-tiny-GGUF/ibm-granite_granite-4.0-h-tiny-Q8_0.gguf -v -c 12288 -t 32 -tb 32 --api-key examplekey001 --host 0.0.0.0 --port 8080
 User=cecuser
 
 [Install]
@@ -165,7 +169,8 @@ $ systemctl status llama.cpp
 $ sudo journalctl -u llama.cpp
 ```
 
-llama.cpp provides a simple UI for interacting  available under `http://<LPAR IP>:8080` (make sure to enter API key under settings).
+llama.cpp provides a simple UI for interacting  available under `http://<LPAR IP>:8080`.
+If asked for an API key, use the one we specified in the execution command of the service file (here `examplekey001`).
 
 ## Set up the vector database
 
@@ -181,7 +186,7 @@ $ . "$HOME/.cargo/env"
 Next, protobuf is installed:
 
 ```shell
-$ export PROTOBUF_VERSION=30.2
+$ export PROTOBUF_VERSION=33.5
 $ curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOBUF_VERSION}/protoc-${PROTOBUF_VERSION}-linux-ppcle_64.zip && unzip -o protoc-${PROTOBUF_VERSION}-linux-ppcle_64.zip -d $HOME/.local
 ```
 
@@ -190,32 +195,30 @@ We want to isolate chroma’s from llama.cpp’s dependencies. Hence, create a n
 ```shell
 $ micromamba create -y \
     -n chroma \
-    --channel=rocketce \
 	--channel=defaults \
-	python=3.11
+	python=3.12
 $ micromamba activate -n chroma
 ```
 
-Here again, a couple of IBM Power-optimised libraries are needed, as well as build tools. These dependencies are installed from the _rocketce_-channel and the main channels:
+Here again, a couple of IBM Power-optimised libraries are needed, as well as build tools. These dependencies are installed from the Devpi and PyPI:
 
 ```shell
-$ micromamba install -y \
-    -n chroma \
-    --channel=rocketce \
-    --channel=defaults \
+$ python -m pip install \
+    --prefer-binary \
+    --extra-index-url=https://wheels.developerfirst.ibm.com/ppc64le/linux \
+    build \
     maturin \
     numpy \
     onnxruntime \
     pillow \
     uvicorn
-$ python -m pip install build
 ```
 
 Next, clone the chroma repository …
 
 ```shell
 $ cd ~/llm
-$ git clone --depth 1 --branch 1.0.20 https://github.com/chroma-core/chroma.git
+$ git clone --depth 1 --branch 1.5.0 https://github.com/chroma-core/chroma.git
 $ cd chroma
 ```
 
@@ -238,7 +241,7 @@ $ python -m build .
 
 ```shell
 $ cd dist
-$ CC=/usr/bin/gcc python -m pip install --prefer-binary --extra-index-url https://repo.fury.io/mgiessing *.whl
+$ CC=/usr/bin/gcc python -m pip install --prefer-binary --extra-index-url https://wheels.developerfirst.ibm.com/ppc64le/linux *.whl
 ```
 
 > [!IMPORTANT]
@@ -262,7 +265,7 @@ We will execute chroma in client-server mode. Therefore, a directory for storing
 $ mkdir db
 ```
 
-Again, create a service-file `/etc/systemd/system/chromadb.service` with following content for easier management of the chroma-process:
+Again, create a service-file `/etc/systemd/system/chromadb.service` with the following content for easier management of the chroma-process:
 
 ```ini
 [Unit]
