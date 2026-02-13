@@ -1,9 +1,20 @@
+from gradio.components.chatbot import ChatMessage
+
+
 import re
 import textwrap
 
 import chromadb
 import gradio as gr
 import openai
+
+from ibm_theme import IBMTheme
+
+custom_css = """
+h1, h2 {
+    color: #0F62FE;
+}
+"""
 
 chroma_client = chromadb.HttpClient(host="localhost", port=8000)
 llm_client = openai.OpenAI(
@@ -23,8 +34,16 @@ def retrieve_documents(query, collection_name, top_k=1):
 
 
 def generate_response(query, chat_history: list, collection_name, top_k, max_tokens, timeout):
+    user_message: ChatMessage = gr.ChatMessage(
+        content=query,
+        role="user",
+    )
+    new_history = chat_history + [user_message]
+    yield "", new_history, ""
+
     documents = retrieve_documents(query, collection_name, int(top_k))
     context = re.sub("#+\s", "", "\n".join(documents))
+    yield "", new_history, context
 
     prompt = textwrap.dedent(f"""
         You are a helpful assistant.
@@ -40,8 +59,12 @@ def generate_response(query, chat_history: list, collection_name, top_k, max_tok
         ### Answer:
         """)
 
-    full_response = ""
-    yield "", chat_history + [(query, full_response)], context
+    final_message = gr.ChatMessage(
+        content="",
+        metadata={"status": "pending"}
+    )
+    yield "", new_history + [final_message], context
+
     response = llm_client.completions.create(
         prompt=prompt,
         model="",
@@ -50,12 +73,15 @@ def generate_response(query, chat_history: list, collection_name, top_k, max_tok
         stream=True,
     )
 
+    full_response = ""
     for chunk in response:
         token_text = chunk.content
         full_response += token_text
-        yield "", chat_history + [(query, full_response)], context
+        final_message.content = full_response
+        yield "", new_history + [final_message], context
+    final_message.metadata["status"] = "done"
 
-    return "", chat_history + [(query, full_response)], ""
+    return "", new_history + [final_message], context
 
 
 def main():
@@ -69,7 +95,7 @@ def main():
             max_tokens_input = gr.Textbox(label="Maximum number of tokens", value="4096")
             timeout_input = gr.Textbox(label="Timeout in seconds", value="360")
 
-        chatbot = gr.Chatbot(label="Chatbot", elem_id="chatbot", height=400)
+        chatbot = gr.Chatbot(label="Chatbot", elem_id="chatbot", height=400, group_consecutive_messages=False)
         context_box = gr.Textbox(lines=8, interactive=False, label="Source from Documents in Vector DB")
         query_input = gr.Textbox(show_label=False, placeholder="Enter your query here...", container=False)
         topic_dropdown = gr.Dropdown(label="Which POWER Topic?", choices=sorted(topic_choices))
@@ -81,7 +107,7 @@ def main():
             outputs=[query_input, chatbot, context_box]
         )
 
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch(server_name="0.0.0.0", server_port=7860, theme=IBMTheme(), css=custom_css)
 
 
 if __name__ == "__main__":
