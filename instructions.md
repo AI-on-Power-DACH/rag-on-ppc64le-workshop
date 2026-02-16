@@ -31,6 +31,9 @@ $ mkdir llm && cd $_
 > [!IMPORTANT]
 > If you are running RHEL 10.0 (RHEL < 10 is probably also affected), you have to manually upgrade `rpm-sequoia` and `openssl-libs` before installing the `Development tools` package. At the time of this writing, `rpm-sequoia` contains a bug, which would lead to the inability to install any package after installing the wrong version of it. Upgrade via `sudo dnf upgrade rpm-sequoia openssl-libs`. >)
 
+> [!IMPORTANT]
+> If you are running RHEL 10.1, you have to update the GPG keys actively as key verification for some package may fail. You can do so my running `sudo dnf update -y redhat-release`.
+
 The `Development tools` package is installed ...
 
 ```shell
@@ -120,14 +123,18 @@ $ chmod +x bin/llama-server
 > 
 > For production scenarios (especially when using vLLM), consider compiling OpenBLAS from source with multi-threading support to boost the performance even further.
 
-All models used in this workshop come from huggingface. To download models, install `huggingface_hub` including the `cli` and `hf_xet` (faster download) extras:
+All models used in this workshop come from huggingface. To download models, install `huggingface_hub` including the `cli` extra:
 
 ```shell
 $ cd ../..
 $ pwd
 /home/cecuser/llm
 $ mkdir models
-$ python -m pip install -U "huggingface_hub[cli,hf_xet]"
+$ python -m pip install -U \
+    --prefer-binary \
+    --extra-index-url=https://wheels.developerfirst.ibm.com/ppc64le/linux \
+    "huggingface_hub[cli]" \
+    hf_xet
 ```
 
 llama.cpp only support models in GGUF format. Some projects publish models in GGUF format, others require converting them using different tools. The user _bartowski_ provides a big number of converted models in different data formats. In the example at hand, the **IBM Granite 4.0-H-Tiny** model is used:
@@ -303,11 +310,70 @@ $ git clone https://github.com/AI-on-Power-DACH/rag-on-ppc64le-workshop.git
 $ cd rag-on-ppc64le-workshop
 ```
 
+### Optional: Convert PDF documents
+
+Markdown proved to be the best markup language for vector databases as it contains enough formatting information to help an AI model understand the structure of the documents as well as the content.
+Furthermore, it has not too many markup tags like HTML, artificially increasing the number of tokens that need to be processed.
+
+If you want to insert your own documents, you can either place the already converted documents as Markdown files (`.md`) in the `db_files` directory or copy your PDF documents to the `db_files` directory.
+
+As the insertion script only consideres Markdown files, any PDF file in the `db_files` directory needs to be converted, first.
+[docling](https://github.com/docling-project/docling) is a powerful tool for converting documents between various formats.
+To install it, we create a separate `data` environment, in which we only install docling as it has a lot of dependencies:
+
+```shell
+$ micromamba create -y \
+    -n data \
+	--channel=defaults \
+	python=3.12
+$ micromamba activate -n data
+```
+
+Docling uses _libGL_, which can be installed via the `mesa-libGL` package:
+
+```shell
+$ sudo dnf install -y mesa-libGL
+```
+
+Lastly, we can run the actual installation command.
+Notice, that a different extra index url is used as docling is not yet part of the official IBM Devpi:
+
+```shell
+$ python -m pip install \
+    --prefer-binary \
+    --extra-index-url https://repo.fury.io/mgiessing \
+    docling
+```
+
+Now, the documents can be converting using the provided conversion script:
+
+```shell
+$ python src/convert_documents.py
+```
+
+It will convert all PDF files in the `db_files` directory to Markdown files and place them in the same directory.
+
+> [!NOTE]
+> The conversion may take a while if you have big documents and no GPU in use.
+> The conversion may be faster on your local PC if you have a decent graphics card.
+
+### Inserting documents into the vector database
+
+Make sure that the `chroma` environment is activated:
+
+```shell
+$ micromamba activate -n chroma
+```
+
 Execute the `insert_documents.py` script, which creates a new collection per document, splits the documents into smaller chunks based on the chapters (one chapter = one chunk), and inserts them into the collection.
 
 ```shell
 $ python src/insert_documents.py
 ```
+
+If you execute this command multiple times, you will end up with a lot of duplicates in your vector database.
+Running the script with the `--clean` flag will delete any existing collection before inserting documents again.
+This way, you will not have any duplicates but older collections will remain.
 
 ## Deployment of the user interface
 
